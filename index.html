@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Timestamp Foto</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Roboto,Arial,sans-serif;background:#f3f4f6;color:#1f2328;font-size:14px}
+  .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:14px 20px;background:#111827;color:#fff}
+  .top h1{font-size:18px;margin:0;font-weight:700}
+  .top .sub{color:#9ca3af;font-size:13px}
+  .wrap{display:grid;grid-template-columns:390px 1fr;gap:16px;padding:16px;align-items:start}
+  .panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
+  @media (max-width:880px){.wrap{grid-template-columns:1fr;padding:10px}.panel{position:static;max-height:none}}
+  .sec{padding:14px 16px;border-bottom:1px solid #eef0f2}
+  .sec:last-child{border-bottom:0}
+  .sectitle,.panel summary{font-weight:600;font-size:13px;color:#374151;margin-bottom:10px;cursor:pointer}
+  .field{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;min-width:0}
+  .field label{font-size:12px;color:#6b7280;display:flex;justify-content:space-between}
+  input,select,textarea{font:inherit;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;width:100%;color:inherit}
+  input[type=range]{padding:0;border:0;accent-color:#1f4fd1}
+  textarea{resize:vertical;min-height:40px}
+  input:focus,select:focus,textarea:focus{outline:2px solid #c7d7fe;border-color:#1f4fd1}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .drop{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px;border:2px dashed #c7cdd6;border-radius:8px;cursor:pointer;text-align:center;color:#4b5563}
+  .drop b{color:#1f2328}
+  .drop span{font-size:12px}
+  .drop:hover,.drop.over{border-color:#1f4fd1;background:#f5f8ff}
+  .drop.small{padding:10px;margin-bottom:10px}
+  #picker{height:230px;border-radius:8px;border:1px solid #d1d5db;margin:2px 0 12px;z-index:0}
+  .hint{font-size:12px;color:#6b7280;margin:-4px 0 8px}
+  button{font:inherit;font-weight:500;padding:8px 14px;border-radius:6px;border:1px solid #1f4fd1;background:#1f4fd1;color:#fff;cursor:pointer;white-space:nowrap}
+  button.ghost{background:#fff;color:#1f4fd1}
+  button:disabled{opacity:.5;cursor:default}
+  button.sm{padding:5px 10px;font-size:12px}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap}
+  .chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-top:10px;cursor:pointer}
+  .chk input{width:auto;margin-top:2px}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  #count{font-weight:600}
+  .status{padding:9px 12px;border-radius:8px;margin-bottom:10px;font-size:13px;background:#eef2ff;color:#1e3a8a}
+  .status.err{background:#fef2f2;color:#991b1b}
+  .status.ok{background:#ecfdf5;color:#065f46}
+  .status a{color:inherit;font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+  .thumb{position:relative;background:#111;line-height:0}
+  .thumb canvas{width:100%;height:auto;display:block}
+  .spin{display:none;position:absolute;top:10px;right:10px;width:22px;height:22px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite}
+  .card.busy .spin{display:block}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .meta{padding:10px 12px 0}
+  .name{font-weight:600;font-size:13px;word-break:break-all}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  .chip{font-size:11px;padding:2px 8px;border-radius:99px;background:#eef2ff;color:#3730a3}
+  .chip.warn{background:#fef3c7;color:#92400e}
+  .chip.edit{background:#ecfdf5;color:#065f46}
+  .exif{font-size:12px;color:#6b7280}
+  .edit{padding:8px 12px;border-top:1px solid #f0f1f3;margin-top:8px}
+  .edit summary{font-size:12px;color:#1f4fd1;cursor:pointer;font-weight:500}
+  .edit[open] summary{margin-bottom:8px}
+  .actions{display:flex;gap:8px;padding:10px 12px;margin-top:auto;border-top:1px solid #f0f1f3}
+  .empty{padding:60px 20px;text-align:center;color:#6b7280;border:2px dashed #d1d5db;border-radius:10px;background:#fff}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Timestamp Foto</h1>
+  <span class="sub">Stamp lokasi, koordinat, waktu + snippet peta OSM</span>
+</header>
+
+<div class="wrap">
+  <aside class="panel">
+    <div class="sec">
+      <label class="drop" id="drop">
+        <input type="file" id="fileIn" accept="image/*" multiple hidden>
+        <b>Upload foto</b>
+        <span>Klik atau drag &amp; drop, bisa banyak sekaligus</span>
+      </label>
+    </div>
+
+    <div class="sec">
+      <div class="sectitle">Data stamp (berlaku untuk semua foto)</div>
+      <div class="field">
+        <label>Lokasi</label>
+        <textarea id="gLoc" rows="2" placeholder="UPT SMP NEGERI 2 PULAU BERINGIN"></textarea>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Latitude</label><input id="gLat" inputmode="decimal" placeholder="-4.51495"></div>
+        <div class="field"><label>Longitude</label><input id="gLng" inputmode="decimal" placeholder="103.72178"></div>
+      </div>
+      <div class="hint">Bisa paste "lat, lng" atau link Google Maps ke kolom Latitude, atau klik/geser pin di peta.</div>
+      <div id="picker"></div>
+      <div class="row2">
+        <div class="field"><label>Altitude (m, opsional)</label><input id="gAlt" inputmode="decimal" placeholder="643.7"></div>
+        <div class="field"><label>Timestamp</label><input id="gTs" type="datetime-local" step="1"></div>
+      </div>
+      <div class="btnrow"><button type="button" id="btnNow" class="ghost sm">Isi waktu sekarang</button></div>
+      <label class="chk"><input type="checkbox" id="useExif" checked> <span>Kalau foto punya EXIF, pakai waktu &amp; GPS asli foto (lokasi tetap dari kolom di atas)</span></label>
+    </div>
+
+    <div class="sec">
+      <div class="sectitle">Logo (opsional)</div>
+      <label class="drop small">
+        <input type="file" id="logoIn" accept="image/*" hidden>
+        <span id="logoLbl">Upload logo (PNG transparan paling rapi)</span>
+      </label>
+      <div class="row2">
+        <div class="field"><label>Posisi logo</label>
+          <select id="logoPos">
+            <option value="tr">Kanan atas</option>
+            <option value="tl">Kiri atas</option>
+            <option value="bl">Kiri bawah</option>
+          </select>
+        </div>
+        <div class="field"><label>Lebar logo <span id="logoSizeV"></span></label><input type="range" id="logoSize" min="6" max="40" value="18"></div>
+      </div>
+      <div class="field"><label>Transparansi logo <span id="logoOpV"></span></label><input type="range" id="logoOp" min="30" max="100" value="100"></div>
+      <button type="button" id="logoDel" class="ghost sm" hidden>Hapus logo</button>
+    </div>
+
+    <details class="sec" open>
+      <summary>Pengaturan tampilan</summary>
+      <div class="row2">
+        <div class="field"><label>Format waktu</label>
+          <select id="tsFmt">
+            <option value="iso">2026-11-20 15:21:36</option>
+            <option value="dmy">20/11/2026 15:21:36</option>
+            <option value="id">20 Nov 2026 15:21:36</option>
+          </select>
+        </div>
+        <div class="field"><label>Zona waktu</label>
+          <select id="tz">
+            <option value="">(tidak ditampilkan)</option>
+            <option>WIB</option><option>WITA</option><option>WIT</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Desimal koordinat</label>
+          <select id="dec">
+            <option value="comma">Koma (-4,51495)</option>
+            <option value="dot">Titik (-4.51495)</option>
+          </select>
+        </div>
+        <div class="field"><label>Latar teks</label>
+          <select id="textBg">
+            <option value="none">Bayangan saja</option>
+            <option value="dark">Kotak gelap</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Posisi peta</label>
+          <select id="mapPos">
+            <option value="bl">Kiri bawah</option>
+            <option value="tl">Kiri atas</option>
+            <option value="tr">Kanan atas</option>
+            <option value="none">Tanpa peta</option>
+          </select>
+        </div>
+        <div class="field"><label>Zoom peta <span id="zoomV"></span></label><input type="range" id="zoom" min="10" max="19" value="16"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Ukuran peta <span id="mapSizeV"></span></label><input type="range" id="mapSize" min="15" max="45" value="28"></div>
+        <div class="field"><label>Ukuran teks <span id="textSizeV"></span></label><input type="range" id="textSize" min="18" max="60" value="32"></div>
+      </div>
+      <div class="field" id="driveField"><label>Folder Google Drive (untuk tombol Simpan ke Drive)</label><input id="driveFolder" value="Timestamp Foto"></div>
+    </details>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <span id="count">Belum ada foto</span>
+      <div class="btnrow">
+        <button type="button" id="btnZip" disabled>Download semua (ZIP)</button>
+        <button type="button" id="btnDrive" class="ghost" disabled>Simpan semua ke Drive</button>
+      </div>
+    </div>
+    <div id="status" class="status" hidden></div>
+    <div id="empty" class="empty">Upload foto untuk mulai. Isi lokasi, koordinat, dan waktu di panel kiri.</div>
+    <div id="grid" class="grid"></div>
+  </main>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var HAS_GAS = typeof google !== 'undefined' && google.script && google.script.run;
+  var PREVIEW_MAX = 1000, EXPORT_MAX = 6000;
+  var BULAN = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  var FONT = 'Roboto, Arial, sans-serif';
+  var $ = function(id){ return document.getElementById(id); };
+
+  var photos = [], seq = 0, logoImg = null;
+  var tileCache = new Map(), mapCache = new Map();
+  var fontsReady = (document.fonts && document.fonts.load)
+    ? Promise.race([document.fonts.load('500 40px Roboto'), new Promise(function(r){ setTimeout(r, 3000); })]).catch(function(){})
+    : Promise.resolve();
+
+  /* ---------- helpers ---------- */
+  function parseNum(v){
+    if (v == null) return NaN;
+    v = String(v).trim().replace(/\s/g, '');
+    if (!v) return NaN;
+    if (v.indexOf(',') > -1 && v.indexOf('.') === -1) v = v.replace(',', '.');
+    return Number(v);
+  }
+  function validLL(lat, lng){ return isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 85 && Math.abs(lng) <= 180; }
+  function pad2(n){ return String(n).padStart(2, '0'); }
+  function dateToInput(d){
+    return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
+  }
+  function extractLatLng(s){
+    s = String(s || '');
+    var m = s.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/) ||
+            s.match(/[?&](?:q|query|ll|destination)=(-?\d+\.\d+)(?:,|%2C)\s*(-?\d+\.\d+)/i) ||
+            s.match(/(-?\d+\.\d+)\s*[,;\s]\s*(-?\d+\.\d+)/) ||
+            s.match(/(-?\d+,\d+)\s*;\s*(-?\d+,\d+)/) ||
+            s.match(/(-?\d+,\d+),\s+(-?\d+,\d+)/);
+    if (!m) return null;
+    var lat = parseNum(m[1]), lng = parseNum(m[2]);
+    return validLL(lat, lng) ? { lat: lat, lng: lng } : null;
+  }
+  function fmtNum(n, d, dec){ var s = n.toFixed(d); return dec === 'comma' ? s.replace('.', ',') : s; }
+  function showStatus(msg, type, link){
+    var el = $('status');
+    el.className = 'status' + (type ? ' ' + type : '');
+    el.textContent = msg;
+    if (link){ el.appendChild(document.createTextNode(' ')); var a = document.createElement('a'); a.href = link.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = link.text; el.appendChild(a); }
+    el.hidden = !msg;
+  }
+  function loadImage(src){
+    return new Promise(function(res, rej){
+      var url = (src instanceof Blob) ? URL.createObjectURL(src) : src;
+      var im = new Image();
+      im.onload = function(){ res(im); };
+      im.onerror = function(){ rej(new Error('gagal decode')); };
+      im.src = url;
+    });
+  }
+  function gasCall(fn){
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function(res, rej){
+      var r = google.script.run.withSuccessHandler(res).withFailureHandler(rej);
+      r[fn].apply(r, args);
+    });
+  }
+
+  /* ---------- options ---------- */
+  var OPT_IDS = ['tsFmt','tz','dec','textBg','mapPos','zoom','mapSize','textSize','logoPos','logoSize','logoOp','driveFolder'];
+  function opts(){
+    return {
+      tsFmt: $('tsFmt').value, tz: $('tz').value, dec: $('dec').value, textBg: $('textBg').value,
+      mapPos: $('mapPos').value, zoom: +$('zoom').value, mapSize: +$('mapSize').value / 100,
+      textSize: +$('textSize').value / 1000, logoPos: $('logoPos').value,
+      logoSize: +$('logoSize').value / 100, logoOp: +$('logoOp').value / 100
+    };
+  }
+  function updateRangeLabels(){
+    $('zoomV').textContent = $('zoom').value;
+    $('mapSizeV').textContent = $('mapSize').value + '%';
+    $('textSizeV').textContent = (+$('textSize').value / 10).toFixed(1) + '%';
+    $('logoSizeV').textContent = $('logoSize').value + '%';
+    $('logoOpV').textContent = $('logoOp').value + '%';
+  }
+  function saveOpts(){
+    try { var o = {}; OPT_IDS.forEach(function(id){ o[id] = $(id).value; }); localStorage.setItem('tsfoto_opts', JSON.stringify(o)); } catch (e) {}
+  }
+  function loadOpts(){
+    try { var o = JSON.parse(localStorage.getItem('tsfoto_opts') || '{}'); OPT_IDS.forEach(function(id){ if (o[id] != null) $(id).value = o[id]; }); } catch (e) {}
+  }
+
+  /* ---------- fields per photo ---------- */
+  function globalVals(){
+    return { loc: $('gLoc').value, lat: $('gLat').value.trim(), lng: $('gLng').value.trim(), alt: $('gAlt').value.trim(), ts: $('gTs').value };
+  }
+  function fieldsFor(p){
+    var g = globalVals(), f = { loc: g.loc, lat: g.lat, lng: g.lng, alt: g.alt, ts: g.ts }, src = { ts: 'manual', gps: 'manual' };
+    if ($('useExif').checked && p.exif){
+      if (p.exif.ts){ f.ts = p.exif.ts; src.ts = 'exif'; }
+      if (p.exif.lat != null){
+        f.lat = String(p.exif.lat); f.lng = String(p.exif.lng);
+        f.alt = p.exif.alt != null ? String(p.exif.alt) : g.alt;
+        src.gps = 'exif';
+      }
+    }
+    return { f: f, src: src };
+  }
+  function coordLine(f, o){
+    var lat = parseNum(f.lat), lng = parseNum(f.lng);
+    if (!validLL(lat, lng)) return '';
+    var s = fmtNum(lat, 5, o.dec) + ', ' + fmtNum(lng, 5, o.dec);
+    var alt = parseNum(f.alt);
+    if (isFinite(alt)) s += (o.dec === 'comma' ? ',' : ', ') + fmtNum(alt, 1, o.dec) + 'm';
+    return s;
+  }
+  function tsLine(ts, o){
+    var m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return '';
+    var Y = m[1], M = m[2], D = m[3], h = m[4], mi = m[5], se = m[6] || '00', s;
+    if (o.tsFmt === 'dmy') s = D + '/' + M + '/' + Y + ' ' + h + ':' + mi + ':' + se;
+    else if (o.tsFmt === 'id') s = (+D) + ' ' + BULAN[+M - 1] + ' ' + Y + ' ' + h + ':' + mi + ':' + se;
+    else s = Y + '-' + M + '-' + D + ' ' + h + ':' + mi + ':' + se;
+    if (o.tz) s += ' ' + o.tz;
+    return s;
+  }
+
+  /* ---------- EXIF ---------- */
+  function readExif(file){
+    if (!window.exifr) return Promise.resolve(null);
+    return exifr.parse(file, { tiff: true, exif: true, gps: true }).then(function(d){
+      if (!d) return null;
+      var out = {};
+      var dt = d.DateTimeOriginal || d.CreateDate;
+      if (dt instanceof Date && !isNaN(dt)) out.ts = dateToInput(dt);
+      if (isFinite(d.latitude) && isFinite(d.longitude) && !(d.latitude === 0 && d.longitude === 0)){
+        out.lat = +(+d.latitude).toFixed(6); out.lng = +(+d.longitude).toFixed(6);
+        if (isFinite(d.GPSAltitude)) out.alt = +((d.GPSAltitudeRef === 1 ? -1 : 1) * d.GPSAltitude).toFixed(1);
+      }
+      return (out.ts || out.lat != null) ? out : null;
+    }).catch(function(){ return null; });
+  }
+
+  /* ---------- OSM map snippet ---------- */
+  function loadTile(z, x, y){
+    var n = 1 << z;
+    x = ((x % n) + n) % n;
+    if (y < 0 || y >= n) return Promise.resolve(null);
+    var key = z + '/' + x + '/' + y;
+    if (tileCache.has(key)) return tileCache.get(key);
+    var pr = new Promise(function(res){
+      var im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = function(){ res(im); };
+      im.onerror = function(){
+        if (!HAS_GAS) return res(null);
+        gasCall('getTile', z, x, y).then(function(b64){
+          if (!b64) return res(null);
+          var i2 = new Image();
+          i2.onload = function(){ res(i2); };
+          i2.onerror = function(){ res(null); };
+          i2.src = 'data:image/png;base64,' + b64;
+        }).catch(function(){ res(null); });
+      };
+      im.src = 'https://tile.openstreetmap.org/' + key + '.png';
+    });
+    tileCache.set(key, pr);
+    pr.then(function(im){ if (!im) tileCache.delete(key); });
+    return pr;
+  }
+  function buildMap(lat, lng, z, R){
+    var key = [lat.toFixed(6), lng.toFixed(6), z, R].join('|');
+    if (mapCache.has(key)) return mapCache.get(key);
+    var pr = (function(){
+      var n = Math.pow(2, z), latR = lat * Math.PI / 180;
+      var px = (lng + 180) / 360 * n * 256;
+      var py = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n * 256;
+      var left = px - R / 2, top = py - R / 2;
+      var c = document.createElement('canvas'); c.width = c.height = R;
+      var g = c.getContext('2d');
+      g.fillStyle = '#e8e4dc'; g.fillRect(0, 0, R, R);
+      var fail = 0, jobs = [];
+      for (var tx = Math.floor(left / 256); tx <= Math.floor((left + R - 1) / 256); tx++){
+        for (var ty = Math.floor(top / 256); ty <= Math.floor((top + R - 1) / 256); ty++){
+          (function(tx, ty){
+            jobs.push(loadTile(z, tx, ty).then(function(im){
+              if (im) g.drawImage(im, Math.round(tx * 256 - left), Math.round(ty * 256 - top));
+              else fail++;
+            }));
+          })(tx, ty);
+        }
+      }
+      return Promise.all(jobs).then(function(){ c._fail = fail; return c; });
+    })();
+    mapCache.set(key, pr);
+    pr.then(function(c){ if (c._fail) mapCache.delete(key); });
+    return pr;
+  }
+
+  /* ---------- drawing ---------- */
+  function drawMapBox(g, mc, x, y, S){
+    var b = Math.max(2, Math.round(S * 0.018));
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = S * 0.04; g.shadowOffsetY = S * 0.01;
+    g.fillStyle = '#fff'; g.fillRect(x - b, y - b, S + 2 * b, S + 2 * b);
+    g.restore();
+    g.save();
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(mc, x, y, S, S);
+    g.restore();
+    // pin merah di titik koordinat
+    var r = S * 0.045;
+    g.save();
+    g.translate(x + S / 2, y + S / 2);
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.bezierCurveTo(-r * 0.3, -r * 0.9, -r, -r * 1.4, -r, -r * 2.2);
+    g.arc(0, -r * 2.2, r, Math.PI, 0, false);
+    g.bezierCurveTo(r, -r * 1.4, r * 0.3, -r * 0.9, 0, 0);
+    g.closePath();
+    g.shadowColor = 'rgba(0,0,0,.4)'; g.shadowBlur = r * 0.6;
+    g.fillStyle = '#e53935'; g.fill();
+    g.shadowColor = 'transparent';
+    g.lineWidth = Math.max(1, r * 0.16); g.strokeStyle = '#8e1b1b'; g.stroke();
+    g.beginPath(); g.arc(0, -r * 2.2, r * 0.38, 0, Math.PI * 2); g.fillStyle = '#fff'; g.fill();
+    g.restore();
+    // atribusi OSM (wajib)
+    var fs = Math.max(8, Math.round(S * 0.05)), pd = fs * 0.3, t = '© OpenStreetMap';
+    g.save();
+    g.font = '400 ' + fs + 'px ' + FONT;
+    var tw = g.measureText(t).width;
+    g.fillStyle = 'rgba(255,255,255,.8)';
+    g.fillRect(x + S - tw - pd * 2, y + S - fs - pd * 1.4, tw + pd * 2, fs + pd * 1.4);
+    g.fillStyle = '#333'; g.textAlign = 'left'; g.textBaseline = 'bottom';
+    g.fillText(t, x + S - tw - pd, y + S - pd * 0.5);
+    g.restore();
+  }
+
+  function drawLogo(g, W, H, m, o, mapBox){
+    var ar = logoImg.naturalWidth / logoImg.naturalHeight;
+    var w = W * o.logoSize, h = w / ar;
+    if (h > H * 0.3){ h = H * 0.3; w = h * ar; }
+    var x = o.logoPos === 'tr' ? W - m - w : m;
+    var y = o.logoPos === 'bl' ? H - m - h : m;
+    if (mapBox && mapBox.pos === o.logoPos){
+      var gap = m * 0.7;
+      y = o.logoPos === 'bl' ? mapBox.y - gap - h : mapBox.y + mapBox.S + gap;
+      if (o.logoPos === 'tr') x = W - m - w;
+    }
+    g.save();
+    g.globalAlpha = o.logoOp;
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(logoImg, x, y, w, h);
+    g.restore();
+    return { x: x, y: y, w: w, h: h, pos: o.logoPos };
+  }
+
+  function wrapText(g, text, maxW){
+    var out = [];
+    String(text).split(/\n/).forEach(function(para){
+      var words = para.split(/\s+/).filter(Boolean), cur = '';
+      words.forEach(function(w){
+        var t = cur ? cur + ' ' + w : w;
+        if (!cur || g.measureText(t).width <= maxW) cur = t;
+        else { out.push(cur); cur = w; }
+      });
+      if (cur) out.push(cur);
+    });
+    return out;
+  }
+
+  function drawText(g, W, H, m, ms, o, f, blW){
+    var fixed = [coordLine(f, o), tsLine(f.ts, o)].filter(Boolean);
+    var loc = String(f.loc || '').trim();
+    if (!loc && !fixed.length) return;
+    var fs = Math.max(10, Math.round(ms * o.textSize));
+    var maxW = W - 2 * m - (blW ? blW + m : 0);
+    maxW = Math.max(maxW, W * 0.35);
+    g.save();
+    g.font = '500 ' + fs + 'px ' + FONT;
+    var widest = Math.max.apply(null, [0].concat(fixed.map(function(t){ return g.measureText(t).width; })));
+    if (widest > maxW){ fs = Math.max(8, Math.floor(fs * maxW / widest)); g.font = '500 ' + fs + 'px ' + FONT; }
+    var lines = (loc ? wrapText(g, loc, maxW) : []).concat(fixed);
+    var lh = Math.round(fs * 1.28);
+    var x = W - m, top = H - m - lines.length * lh;
+    if (o.textBg === 'dark'){
+      var bw = Math.max.apply(null, lines.map(function(t){ return g.measureText(t).width; }));
+      var pd = fs * 0.45;
+      g.fillStyle = 'rgba(0,0,0,.45)';
+      g.fillRect(x - bw - pd, top - pd * 0.6, bw + pd * 2, lines.length * lh + pd * 1.2);
+    }
+    g.fillStyle = '#fff'; g.textAlign = 'right'; g.textBaseline = 'middle';
+    g.shadowColor = 'rgba(0,0,0,.85)';
+    g.shadowBlur = Math.max(2, fs * 0.16);
+    g.shadowOffsetX = g.shadowOffsetY = Math.max(1, fs * 0.05);
+    for (var pass = 0; pass < 2; pass++){
+      lines.forEach(function(t, i){ g.fillText(t, x, top + i * lh + lh / 2); });
+      g.shadowBlur = Math.max(1, fs * 0.06); g.shadowOffsetX = g.shadowOffsetY = 0;
+    }
+    g.restore();
+  }
+
+  function renderPhoto(p, maxSide){
+    var o = opts(), img = p.img;
+    var sc = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    var W = Math.round(img.naturalWidth * sc), H = Math.round(img.naturalHeight * sc);
+    var c = document.createElement('canvas'); c.width = W; c.height = H;
+    var g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(img, 0, 0, W, H);
+    var ms = Math.min(W, H), m = Math.round(ms * 0.03);
+    var lat = parseNum(p.f.lat), lng = parseNum(p.f.lng);
+    var mapPr = Promise.resolve(null);
+    if (o.mapPos !== 'none' && validLL(lat, lng)){
+      var S = Math.round(ms * o.mapSize);
+      var k = (S > 420 && o.zoom < 19) ? 1 : 0;   // foto besar: zoom+1 & area 2x supaya peta tetap tajam
+      mapPr = buildMap(lat, lng, o.zoom + k, 320 * (k ? 2 : 1)).then(function(mc){
+        var x = o.mapPos === 'tr' ? W - m - S : m;
+        var y = o.mapPos === 'bl' ? H - m - S : m;
+        drawMapBox(g, mc, x, y, S);
+        return { x: x, y: y, S: S, pos: o.mapPos, fail: mc._fail };
+      });
+    }
+    return Promise.all([mapPr, fontsReady]).then(function(r){
+      var mapBox = r[0], blW = 0;
+      if (mapBox && mapBox.pos === 'bl') blW = mapBox.S;
+      if (logoImg){
+        var lb = drawLogo(g, W, H, m, o, mapBox);
+        if (lb.pos === 'bl' && lb.y + lb.h > H * 0.6) blW = Math.max(blW, lb.w);
+      }
+      drawText(g, W, H, m, ms, o, p.f, blW);
+      c._mapFail = mapBox ? mapBox.fail : 0;
+      return c;
+    });
+  }
+
+  /* ---------- cards ---------- */
+  var renderQ = new Set(), renderTimer = null, rendering = false;
+  function schedule(p){
+    if (p) renderQ.add(p); else photos.forEach(function(x){ renderQ.add(x); });
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(flush, 250);
+  }
+  function flush(){
+    if (rendering){ renderTimer = setTimeout(flush, 150); return; }
+    var list = Array.from(renderQ); renderQ.clear();
+    if (!list.length) return;
+    rendering = true;
+    var chain = Promise.resolve();
+    list.forEach(function(p){
+      chain = chain.then(function(){
+        if (photos.indexOf(p) < 0) return;
+        p.el.classList.add('busy');
+        return renderPhoto(p, PREVIEW_MAX).then(function(c){
+          var cv = p.el.querySelector('canvas');
+          cv.width = c.width; cv.height = c.height;
+          cv.getContext('2d').drawImage(c, 0, 0);
+          p.mapFail = c._mapFail;
+        }).catch(function(e){
+          console.error(e); showStatus('Gagal render ' + p.name + ': ' + e.message, 'err');
+        }).then(function(){ p.el.classList.remove('busy'); updateChips(p); });
+      });
+    });
+    chain.then(function(){ rendering = false; });
+  }
+
+  function attachLatLngPaste(latEl, lngEl, onSet){
+    [latEl, lngEl].forEach(function(el){
+      el.addEventListener('paste', function(e){
+        var t = (e.clipboardData || window.clipboardData).getData('text');
+        var ll = extractLatLng(t);
+        if (ll && /[,;\s@]/.test(t.trim())){
+          e.preventDefault();
+          latEl.value = ll.lat; lngEl.value = ll.lng;
+          onSet();
+        }
+      });
+    });
+  }
+
+  function makeCard(p){
+    var el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML =
+      '<div class="thumb"><canvas width="4" height="3"></canvas><div class="spin"></div></div>' +
+      '<div class="meta"><div class="name"></div><div class="chips"></div><div class="exif"></div></div>' +
+      '<details class="edit"><summary>Edit khusus foto ini</summary>' +
+        '<div class="field"><label>Lokasi</label><textarea rows="2" data-k="loc"></textarea></div>' +
+        '<div class="row2"><div class="field"><label>Latitude</label><input data-k="lat" inputmode="decimal"></div>' +
+        '<div class="field"><label>Longitude</label><input data-k="lng" inputmode="decimal"></div></div>' +
+        '<div class="row2"><div class="field"><label>Altitude (m)</label><input data-k="alt" inputmode="decimal"></div>' +
+        '<div class="field"><label>Timestamp</label><input data-k="ts" type="datetime-local" step="1"></div></div>' +
+        '<button type="button" class="ghost sm" data-act="reset">Kembalikan ke data umum</button>' +
+      '</details>' +
+      '<div class="actions"><button type="button" data-act="dl">Download JPG</button><button type="button" class="ghost" data-act="del">Hapus</button></div>';
+    el.querySelector('.name').textContent = p.name;
+    el.querySelectorAll('[data-k]').forEach(function(inp){
+      inp.addEventListener('input', function(){ p.f[inp.dataset.k] = inp.value; p.custom = true; schedule(p); });
+    });
+    var latEl = el.querySelector('[data-k=lat]'), lngEl = el.querySelector('[data-k=lng]');
+    attachLatLngPaste(latEl, lngEl, function(){ p.f.lat = latEl.value; p.f.lng = lngEl.value; p.custom = true; schedule(p); });
+    el.addEventListener('click', function(e){
+      var a = e.target.closest('[data-act]'); if (!a) return;
+      var act = a.dataset.act;
+      if (act === 'del'){
+        photos.splice(photos.indexOf(p), 1); el.remove();
+        try { URL.revokeObjectURL(p.img.src); } catch (err) {}
+        updateCount();
+      } else if (act === 'reset'){
+        p.custom = false; var r = fieldsFor(p); p.f = r.f; p.src = r.src; syncCard(p); schedule(p);
+      } else if (act === 'dl'){
+        a.disabled = true;
+        exportBlob(p).then(function(b){ downloadBlob(b, outName(p)); })
+          .catch(function(err){ showStatus('Gagal export: ' + err.message, 'err'); })
+          .then(function(){ a.disabled = false; });
+      }
+    });
+    return el;
+  }
+  function syncCard(p){
+    p.el.querySelectorAll('[data-k]').forEach(function(inp){
+      if (document.activeElement !== inp) inp.value = p.f[inp.dataset.k] || '';
+    });
+    updateChips(p);
+  }
+  function updateChips(p){
+    var box = p.el.querySelector('.chips'); box.innerHTML = '';
+    function chip(t, cls){ var s = document.createElement('span'); s.className = 'chip' + (cls ? ' ' + cls : ''); s.textContent = t; box.appendChild(s); }
+    if (p.custom) chip('Diedit per foto', 'edit');
+    else {
+      if (p.src.ts === 'exif') chip('Waktu dari EXIF');
+      if (p.src.gps === 'exif') chip('GPS dari EXIF');
+    }
+    if (!validLL(parseNum(p.f.lat), parseNum(p.f.lng))) chip('Koordinat kosong', 'warn');
+    if (!tsLine(p.f.ts, opts())) chip('Waktu kosong', 'warn');
+    if (!String(p.f.loc || '').trim()) chip('Lokasi kosong', 'warn');
+    if (p.mapFail) chip('Sebagian tile peta gagal dimuat', 'warn');
+    var ex = p.el.querySelector('.exif');
+    if (p.exif){
+      var parts = [];
+      parts.push(p.exif.ts ? 'waktu ' + p.exif.ts.replace('T', ' ') : 'tanpa waktu');
+      parts.push(p.exif.lat != null ? 'GPS ' + p.exif.lat + ', ' + p.exif.lng : 'tanpa GPS');
+      ex.textContent = 'EXIF asli: ' + parts.join(' · ');
+    } else ex.textContent = 'EXIF asli: tidak ada waktu/GPS';
+  }
+  function updateCount(){
+    var n = photos.length;
+    $('count').textContent = n ? n + ' foto' : 'Belum ada foto';
+    $('empty').hidden = n > 0;
+    $('btnZip').disabled = !n;
+    $('btnDrive').disabled = !n || !HAS_GAS;
+  }
+
+  function addFiles(files){
+    var list = Array.from(files).filter(function(f){ return /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name); });
+    if (!list.length) return;
+    showStatus('Memuat ' + list.length + ' foto...');
+    var chain = Promise.resolve();
+    list.forEach(function(file){
+      chain = chain.then(function(){
+        var p = { id: ++seq, file: file, name: file.name, custom: false };
+        return loadImage(file).then(function(img){
+          p.img = img;
+          return readExif(file);
+        }).then(function(ex){
+          p.exif = ex;
+          var r = fieldsFor(p); p.f = r.f; p.src = r.src;
+          photos.push(p);
+          p.el = makeCard(p);
+          $('grid').appendChild(p.el);
+          syncCard(p); schedule(p); updateCount();
+        }).catch(function(){
+          showStatus(file.name + ' tidak bisa dibaca browser (HEIC? ubah ke JPG dulu).', 'err');
+        });
+      });
+    });
+    chain.then(function(){ if ($('status').className === 'status') showStatus(''); });
+  }
+
+  /* ---------- export ---------- */
+  function outName(p){ return p.name.replace(/\.[^.]+$/, '') + '_stamp.jpg'; }
+  function exportCanvas(p){ return renderPhoto(p, EXPORT_MAX); }
+  function exportBlob(p){
+    return exportCanvas(p).then(function(c){
+      return new Promise(function(res, rej){ c.toBlob(function(b){ b ? res(b) : rej(new Error('toBlob gagal')); }, 'image/jpeg', 0.92); });
+    });
+  }
+  function downloadBlob(blob, name){
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.target = '_self';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 5000);
+  }
+  function missingWarning(){
+    var miss = photos.filter(function(p){ return !validLL(parseNum(p.f.lat), parseNum(p.f.lng)) || !tsLine(p.f.ts, opts()); }).length;
+    return miss ? ' (' + miss + ' foto koordinat/waktunya kosong)' : '';
+  }
+
+  $('btnZip').addEventListener('click', function(){
+    if (!window.JSZip){ showStatus('Library ZIP gagal dimuat, download per foto saja.', 'err'); return; }
+    var btn = this; btn.disabled = true;
+    var zip = new JSZip(), used = {}, i = 0, warn = missingWarning();
+    var chain = Promise.resolve();
+    photos.slice().forEach(function(p){
+      chain = chain.then(function(){
+        showStatus('Membuat ' + (++i) + '/' + photos.length + '...' + warn);
+        return exportBlob(p).then(function(b){
+          var nm = outName(p), base = nm.replace(/\.jpg$/, ''), k = 1;
+          while (used[nm]) nm = base + '_' + (++k) + '.jpg';
+          used[nm] = 1; zip.file(nm, b);
+        });
+      });
+    });
+    chain.then(function(){ return zip.generateAsync({ type: 'blob' }); })
+      .then(function(blob){
+        var d = new Date();
+        downloadBlob(blob, 'timestamp_' + d.getFullYear() + pad2(d.getMonth()+1) + pad2(d.getDate()) + '_' + pad2(d.getHours()) + pad2(d.getMinutes()) + '.zip');
+        showStatus('ZIP siap: ' + photos.length + ' foto.' + warn, 'ok');
+      })
+      .catch(function(e){ showStatus('Gagal buat ZIP: ' + e.message, 'err'); })
+      .then(function(){ btn.disabled = false; });
+  });
+
+  $('btnDrive').addEventListener('click', function(){
+    if (!HAS_GAS) return;
+    var btn = this; btn.disabled = true;
+    var folder = $('driveFolder').value.trim() || 'Timestamp Foto', i = 0, last = null, warn = missingWarning();
+    var chain = Promise.resolve();
+    photos.slice().forEach(function(p){
+      chain = chain.then(function(){
+        showStatus('Menyimpan ke Drive ' + (++i) + '/' + photos.length + '...' + warn);
+        return exportCanvas(p).then(function(c){
+          return gasCall('saveToDrive', c.toDataURL('image/jpeg', 0.92), outName(p), folder);
+        }).then(function(r){ last = r; });
+      });
+    });
+    chain.then(function(){
+      showStatus(photos.length + ' foto tersimpan di folder "' + folder + '".' + warn, 'ok', last ? { url: last.folderUrl, text: 'Buka folder' } : null);
+    }).catch(function(e){ showStatus('Gagal simpan ke Drive: ' + (e && e.message || e), 'err'); })
+      .then(function(){ btn.disabled = false; });
+  });
+
+  /* ---------- global inputs ---------- */
+  var gTimer = null;
+  function onGlobalChange(){
+    clearTimeout(gTimer);
+    gTimer = setTimeout(function(){
+      photos.forEach(function(p){ if (!p.custom){ var r = fieldsFor(p); p.f = r.f; p.src = r.src; syncCard(p); } });
+      schedule();
+    }, 150);
+  }
+  ['gLoc','gLat','gLng','gAlt','gTs'].forEach(function(id){ $(id).addEventListener('input', onGlobalChange); });
+  $('useExif').addEventListener('change', onGlobalChange);
+  $('gLat').addEventListener('input', function(){ syncPicker(false); });
+  $('gLng').addEventListener('input', function(){ syncPicker(false); });
+  $('gLat').addEventListener('change', function(){ syncPicker(true); });
+  $('gLng').addEventListener('change', function(){ syncPicker(true); });
+  attachLatLngPaste($('gLat'), $('gLng'), function(){ onGlobalChange(); syncPicker(true); });
+  $('btnNow').addEventListener('click', function(){ $('gTs').value = dateToInput(new Date()); onGlobalChange(); });
+
+  OPT_IDS.forEach(function(id){
+    var ev = $(id).type === 'range' ? 'input' : 'change';
+    $(id).addEventListener(ev, function(){ updateRangeLabels(); saveOpts(); if (id !== 'driveFolder') schedule(); });
+  });
+
+  /* ---------- upload ---------- */
+  $('fileIn').addEventListener('change', function(e){ addFiles(e.target.files); e.target.value = ''; });
+  var drop = $('drop');
+  ['dragenter','dragover'].forEach(function(ev){ document.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave','drop'].forEach(function(ev){ document.addEventListener(ev, function(e){ e.preventDefault(); if (ev === 'drop' || e.target === document.documentElement) drop.classList.remove('over'); }); });
+  document.addEventListener('drop', function(e){ if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+
+  $('logoIn').addEventListener('change', function(e){
+    var f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    loadImage(f).then(function(im){
+      logoImg = im; $('logoLbl').textContent = 'Logo: ' + f.name + ' (klik untuk ganti)'; $('logoDel').hidden = false; schedule();
+    }).catch(function(){ showStatus('Logo tidak bisa dibaca.', 'err'); });
+  });
+  $('logoDel').addEventListener('click', function(){
+    logoImg = null; $('logoLbl').textContent = 'Upload logo (PNG transparan paling rapi)'; this.hidden = true; schedule();
+  });
+
+  /* ---------- peta picker (Leaflet + OSM) ---------- */
+  var pmap = null, pmarker = null;
+  function setGlobalLL(lat, lng){
+    $('gLat').value = lat.toFixed(6); $('gLng').value = lng.toFixed(6);
+    onGlobalChange(); syncPicker(false);
+  }
+  function syncPicker(center){
+    if (!pmap) return;
+    var lat = parseNum($('gLat').value), lng = parseNum($('gLng').value);
+    if (validLL(lat, lng)){
+      if (!pmarker){
+        pmarker = L.marker([lat, lng], { draggable: true }).addTo(pmap);
+        pmarker.on('dragend', function(){ var ll = pmarker.getLatLng(); setGlobalLL(ll.lat, ll.lng); });
+      } else pmarker.setLatLng([lat, lng]);
+      if (center) pmap.setView([lat, lng], Math.max(pmap.getZoom(), 15));
+    } else if (pmarker){ pmap.removeLayer(pmarker); pmarker = null; }
+  }
+  function initPicker(){
+    if (!window.L){ $('picker').innerHTML = '<div class="hint" style="padding:10px">Peta picker gagal dimuat, isi lat/lng manual.</div>'; return; }
+    L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/';
+    pmap = L.map('picker').setView([-2.5, 118], 4);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(pmap);
+    pmap.on('click', function(e){ setGlobalLL(e.latlng.lat, e.latlng.lng); });
+    setTimeout(function(){ pmap.invalidateSize(); }, 300);
+  }
+
+  /* ---------- init ---------- */
+  loadOpts(); updateRangeLabels();
+  $('driveField').hidden = !HAS_GAS;
+  $('btnDrive').hidden = !HAS_GAS;
+  initPicker();
+  updateCount();
+})();
+</script>
+</body>
+</html>

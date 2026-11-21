@@ -10,6 +10,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js"></script>
 <style>
   *{box-sizing:border-box}
   body{margin:0;font-family:Roboto,Arial,sans-serif;background:#f3f4f6;color:#1f2328;font-size:14px}
@@ -125,6 +126,18 @@
       </div>
       <div class="field"><label>Transparansi logo <span id="logoOpV"></span></label><input type="range" id="logoOp" min="30" max="100" value="100"></div>
       <button type="button" id="logoDel" class="ghost sm" hidden>Hapus logo</button>
+    </div>
+
+    <div class="sec">
+      <div class="sectitle">EXIF file hasil</div>
+      <div class="field">
+        <select id="outMode">
+          <option value="keep">Stamp + EXIF asli + penanda</option>
+          <option value="strip">Stamp + hapus semua EXIF</option>
+          <option value="only">Hapus EXIF saja (tanpa stamp)</option>
+        </select>
+      </div>
+      <div class="hint" id="outModeHint"></div>
     </div>
 
     <details class="sec" open>
@@ -256,9 +269,15 @@
   }
 
   /* ---------- options ---------- */
-  var OPT_IDS = ['tsFmt','tz','dec','textBg','mapPos','zoom','mapSize','textSize','logoPos','logoSize','logoOp','driveFolder'];
+  var OPT_IDS = ['tsFmt','tz','dec','textBg','mapPos','zoom','mapSize','textSize','logoPos','logoSize','logoOp','driveFolder','outMode'];
+  var OUT_HINT = {
+    keep: 'Waktu, GPS & info kamera asli ikut terbawa. Field yang kosong diisi dari input. Selalu ditambah penanda Software "Timestamp Foto" + keterangan isi stamp dan field mana yang diisi manual.',
+    strip: 'File hasil tanpa metadata sama sekali (waktu, GPS, model HP, dll. hilang).',
+    only: 'Foto tidak distempel, hanya metadata dibuang. JPG diproses tanpa kompresi ulang (kualitas asli), kecuali foto yang perlu diputar.'
+  };
   function opts(){
     return {
+      outMode: $('outMode').value,
       tsFmt: $('tsFmt').value, tz: $('tz').value, dec: $('dec').value, textBg: $('textBg').value,
       mapPos: $('mapPos').value, zoom: +$('zoom').value, mapSize: +$('mapSize').value / 100,
       textSize: +$('textSize').value / 1000, logoPos: $('logoPos').value,
@@ -271,6 +290,7 @@
     $('textSizeV').textContent = (+$('textSize').value / 10).toFixed(1) + '%';
     $('logoSizeV').textContent = $('logoSize').value + '%';
     $('logoOpV').textContent = $('logoOp').value + '%';
+    $('outModeHint').textContent = OUT_HINT[$('outMode').value] || '';
   }
   function saveOpts(){
     try { var o = {}; OPT_IDS.forEach(function(id){ o[id] = $(id).value; }); localStorage.setItem('tsfoto_opts', JSON.stringify(o)); } catch (e) {}
@@ -497,6 +517,7 @@
     var g = c.getContext('2d');
     g.imageSmoothingQuality = 'high';
     g.drawImage(img, 0, 0, W, H);
+    if (o.outMode === 'only'){ c._mapFail = 0; return Promise.resolve(c); }
     var ms = Math.min(W, H), m = Math.round(ms * 0.03);
     var lat = parseNum(p.f.lat), lng = parseNum(p.f.lng);
     var mapPr = Promise.resolve(null);
@@ -615,15 +636,18 @@
   function updateChips(p){
     var box = p.el.querySelector('.chips'); box.innerHTML = '';
     function chip(t, cls){ var s = document.createElement('span'); s.className = 'chip' + (cls ? ' ' + cls : ''); s.textContent = t; box.appendChild(s); }
-    if (p.custom) chip('Diedit per foto', 'edit');
+    if (opts().outMode === 'only') chip('Mode hapus EXIF saja');
     else {
-      if (p.src.ts === 'exif') chip('Waktu dari EXIF');
-      if (p.src.gps === 'exif') chip('GPS dari EXIF');
+      if (p.custom) chip('Diedit per foto', 'edit');
+      else {
+        if (p.src.ts === 'exif') chip('Waktu dari EXIF');
+        if (p.src.gps === 'exif') chip('GPS dari EXIF');
+      }
+      if (!validLL(parseNum(p.f.lat), parseNum(p.f.lng))) chip('Koordinat kosong', 'warn');
+      if (!tsLine(p.f.ts, opts())) chip('Waktu kosong', 'warn');
+      if (!String(p.f.loc || '').trim()) chip('Lokasi kosong', 'warn');
+      if (p.mapFail) chip('Sebagian tile peta gagal dimuat', 'warn');
     }
-    if (!validLL(parseNum(p.f.lat), parseNum(p.f.lng))) chip('Koordinat kosong', 'warn');
-    if (!tsLine(p.f.ts, opts())) chip('Waktu kosong', 'warn');
-    if (!String(p.f.loc || '').trim()) chip('Lokasi kosong', 'warn');
-    if (p.mapFail) chip('Sebagian tile peta gagal dimuat', 'warn');
     var ex = p.el.querySelector('.exif');
     if (p.exif){
       var parts = [];
@@ -667,11 +691,116 @@
   }
 
   /* ---------- export ---------- */
-  function outName(p){ return p.name.replace(/\.[^.]+$/, '') + '_stamp.jpg'; }
-  function exportCanvas(p){ return renderPhoto(p, EXPORT_MAX); }
+  function outName(p){ return p.name.replace(/\.[^.]+$/, '') + (opts().outMode === 'only' ? '_noexif.jpg' : '_stamp.jpg'); }
+
+  /* ---------- EXIF ---------- */
+  function readAsDataURL(file){
+    return new Promise(function(res, rej){ var r = new FileReader(); r.onload = function(){ res(r.result); }; r.onerror = rej; r.readAsDataURL(file); });
+  }
+  function blobToDataURL(b){ return readAsDataURL(b); }
+  function dataURLToBlob(d){
+    var m = d.match(/^data:([^;]+);base64,(.*)$/), bin = atob(m[2]), u = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return new Blob([u], { type: m[1] });
+  }
+  function canvasJpeg(c){ return c.toDataURL('image/jpeg', 0.92); }
+  function exifTime(ts){
+    var m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    return m ? m[1] + ':' + m[2] + ':' + m[3] + ' ' + m[4] + ':' + m[5] + ':' + (m[6] || '00') : '';
+  }
+  function ascii(s){ return String(s).normalize('NFKD').replace(/[^\x20-\x7E]/g, '').slice(0, 480); }
+  function loadOrigExif(origURL){
+    if (!window.piexif || !/^data:image\/jpe?g/i.test(origURL)) return null;
+    try { return piexif.load(origURL); } catch (e) { return null; }
+  }
+  function dumpExif(ex){
+    try { return piexif.dump(ex); } catch (e) {}
+    try { delete ex.Exif[piexif.ExifIFD.MakerNote]; ex.Interop = {}; return piexif.dump(ex); } catch (e) {}
+    // versi minimal kalau EXIF asli bermasalah
+    var I = piexif.ImageIFD, E = piexif.ExifIFD, z = { '0th': {}, Exif: {}, GPS: ex.GPS || {} };
+    [I.Make, I.Model, I.Software, I.DateTime, I.ImageDescription, I.Orientation].forEach(function(k){ if (ex['0th'][k] != null) z['0th'][k] = ex['0th'][k]; });
+    [E.DateTimeOriginal, E.DateTimeDigitized].forEach(function(k){ if (ex.Exif[k] != null) z.Exif[k] = ex.Exif[k]; });
+    try { return piexif.dump(z); } catch (e) { z.GPS = {}; return piexif.dump(z); }
+  }
+  // Mode "keep": EXIF asli dibawa, field kosong diisi dari input, selalu diberi penanda.
+  function withExif(p, origURL, jpgURL, c, o){
+    var I = piexif.ImageIFD, E = piexif.ExifIFD, G = piexif.GPSIFD;
+    var l = loadOrigExif(origURL) || {};
+    var ex = { '0th': l['0th'] || {}, Exif: l.Exif || {}, GPS: l.GPS || {}, Interop: l.Interop || {}, '1st': {}, thumbnail: null };
+    var manual = [], f = p.f;
+    if (!ex.Exif[E.DateTimeOriginal]){
+      var t = exifTime(f.ts);
+      if (t){ ex.Exif[E.DateTimeOriginal] = t; ex.Exif[E.DateTimeDigitized] = t; manual.push('waktu'); }
+    }
+    if (!(ex.GPS[G.GPSLatitude] && ex.GPS[G.GPSLongitude])){
+      var lat = parseNum(f.lat), lng = parseNum(f.lng), alt = parseNum(f.alt);
+      if (validLL(lat, lng)){
+        ex.GPS = {};
+        ex.GPS[G.GPSVersionID] = [2, 3, 0, 0];
+        ex.GPS[G.GPSLatitudeRef] = lat < 0 ? 'S' : 'N';
+        ex.GPS[G.GPSLatitude] = piexif.GPSHelper.degToDmsRational(Math.abs(lat));
+        ex.GPS[G.GPSLongitudeRef] = lng < 0 ? 'W' : 'E';
+        ex.GPS[G.GPSLongitude] = piexif.GPSHelper.degToDmsRational(Math.abs(lng));
+        if (isFinite(alt)){ ex.GPS[G.GPSAltitudeRef] = alt < 0 ? 1 : 0; ex.GPS[G.GPSAltitude] = [Math.round(Math.abs(alt) * 100), 100]; }
+        manual.push('GPS');
+      }
+    }
+    ex['0th'][I.Orientation] = 1;                         // piksel sudah diputar oleh browser
+    if (ex['0th'][I.ImageWidth] != null) ex['0th'][I.ImageWidth] = c.width;
+    if (ex['0th'][I.ImageLength] != null) ex['0th'][I.ImageLength] = c.height;
+    ex.Exif[E.PixelXDimension] = c.width; ex.Exif[E.PixelYDimension] = c.height;
+    ex['0th'][I.Software] = 'Timestamp Foto';
+    ex['0th'][I.DateTime] = exifTime(dateToInput(new Date())); // waktu file diedit
+    var stamp = [String(f.loc || '').replace(/\s+/g, ' ').trim(), coordLine(f, o), tsLine(f.ts, o)].filter(Boolean).join(' | ');
+    ex['0th'][I.ImageDescription] = ascii('Distempel dengan Timestamp Foto. Isi stamp: ' + (stamp || '-') + '. ' +
+      (manual.length ? 'Field EXIF diisi dari input manual (bukan kamera): ' + manual.join(', ') + '.' : 'Tidak ada field EXIF yang diisi manual.'));
+    return piexif.insert(dumpExif(ex), jpgURL);
+  }
+  // Mode "only": buang metadata JPG tanpa kompresi ulang (simpan APP0, ICC profile, Adobe).
+  function stripJpegLossless(buf){
+    var d = new Uint8Array(buf);
+    if (d[0] !== 0xFF || d[1] !== 0xD8) return null;
+    var out = [d.subarray(0, 2)], i = 2;
+    while (i < d.length){
+      if (d[i] !== 0xFF) return null;
+      var mk = d[i + 1];
+      if (mk === 0xFF){ i++; continue; }
+      if (mk === 0xDA){ out.push(d.subarray(i)); return new Blob(out, { type: 'image/jpeg' }); }
+      if (mk === 0x01 || (mk >= 0xD0 && mk <= 0xD7)){ out.push(d.subarray(i, i + 2)); i += 2; continue; }
+      var len = (d[i + 2] << 8) | d[i + 3], seg = d.subarray(i, i + 2 + len), keep = true;
+      if (mk === 0xE1 || mk === 0xED || mk === 0xFE) keep = false;            // EXIF/XMP, IPTC, komentar
+      else if (mk === 0xE2) keep = String.fromCharCode.apply(null, d.subarray(i + 4, i + 15)) === 'ICC_PROFILE';
+      else if (mk >= 0xE3 && mk <= 0xEF && mk !== 0xEE) keep = false;          // APPn lain (vendor/metadata)
+      if (keep) out.push(seg);
+      i += 2 + len;
+    }
+    return null;
+  }
+  function stripOnly(p){
+    var isJpg = /^image\/jpe?g$/i.test(p.file.type) || /\.jpe?g$/i.test(p.name);
+    if (!isJpg) return renderPhoto(p, EXPORT_MAX).then(function(c){ return dataURLToBlob(c.toDataURL('image/jpeg', 0.95)); });
+    return p.file.arrayBuffer().then(function(buf){
+      var orient = 1;
+      try {
+        var u = new Uint8Array(buf), s = '';
+        for (var k = 0; k < u.length; k += 32768) s += String.fromCharCode.apply(null, u.subarray(k, k + 32768));
+        var l = window.piexif ? piexif.load(s) : null;
+        orient = (l && l['0th'] && l['0th'][piexif.ImageIFD.Orientation]) || 1;
+      } catch (e) { orient = 0; }   // tidak terbaca: anggap perlu encode ulang supaya aman
+      var b = orient === 1 ? stripJpegLossless(buf) : null;
+      if (b) return b;
+      // foto perlu diputar (Orientation != 1) atau struktur JPG tak terbaca: encode ulang kualitas tinggi
+      return renderPhoto(p, EXPORT_MAX).then(function(c){ return dataURLToBlob(c.toDataURL('image/jpeg', 0.95)); });
+    });
+  }
   function exportBlob(p){
-    return exportCanvas(p).then(function(c){
-      return new Promise(function(res, rej){ c.toBlob(function(b){ b ? res(b) : rej(new Error('toBlob gagal')); }, 'image/jpeg', 0.92); });
+    var o = opts();
+    if (o.outMode === 'only') return stripOnly(p);
+    return renderPhoto(p, EXPORT_MAX).then(function(c){
+      var jpg = canvasJpeg(c);
+      if (o.outMode === 'strip') return dataURLToBlob(jpg);
+      if (!window.piexif){ showStatus('Library EXIF gagal dimuat: file hasil tanpa EXIF.', 'err'); return dataURLToBlob(jpg); }
+      return readAsDataURL(p.file).then(function(orig){ return dataURLToBlob(withExif(p, orig, jpg, c, o)); });
     });
   }
   function downloadBlob(blob, name){
@@ -718,8 +847,8 @@
     photos.slice().forEach(function(p){
       chain = chain.then(function(){
         showStatus('Menyimpan ke Drive ' + (++i) + '/' + photos.length + '...' + warn);
-        return exportCanvas(p).then(function(c){
-          return gasCall('saveToDrive', c.toDataURL('image/jpeg', 0.92), outName(p), folder);
+        return exportBlob(p).then(blobToDataURL).then(function(d){
+          return gasCall('saveToDrive', d, outName(p), folder);
         }).then(function(r){ last = r; });
       });
     });

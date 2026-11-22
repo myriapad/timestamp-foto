@@ -11,7 +11,25 @@
 <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js"></script>
+<script>
+  // Password gate (versi publik). Versi Apps Script (host googleusercontent.com) tidak di-gate karena sudah wajib login Logisly.
+  (function(){
+    var H = 'e5f17f4bc4c61f746c26ae8618b352eccaf0b9a09a9b3158e2ccbdfa3cbbd81c';
+    window.__PW_HASH = H;
+    var gas = /googleusercontent\.com$/.test(location.hostname), ok = false;
+    try { ok = localStorage.getItem('tsfoto_ok') === H; } catch (e) {}
+    if (!gas && !ok) document.documentElement.classList.add('locked');
+  })();
+</script>
 <style>
+  #gate{display:none;position:fixed;inset:0;z-index:10000;background:#111827;align-items:center;justify-content:center;padding:20px}
+  html.locked #gate{display:flex}
+  html.locked .top,html.locked .wrap{visibility:hidden}
+  .gatebox{background:#fff;border-radius:12px;padding:24px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px}
+  .gatebox h2{margin:0 0 4px;font-size:18px}
+  .gatebox label{font-size:12px;color:#6b7280}
+  .gatebox input{font-size:16px}
+  .gerr{color:#991b1b;font-size:13px}
   *{box-sizing:border-box}
   body{margin:0;font-family:Roboto,Arial,sans-serif;background:#f3f4f6;color:#1f2328;font-size:14px}
   .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:14px 20px;background:#111827;color:#fff}
@@ -73,6 +91,15 @@
 </style>
 </head>
 <body>
+<div id="gate">
+  <form id="gateForm" class="gatebox" autocomplete="on">
+    <h2>Timestamp Foto</h2>
+    <label for="gatePw">Password</label>
+    <input id="gatePw" type="password" autocomplete="current-password" required>
+    <button type="submit">Masuk</button>
+    <div id="gateErr" class="gerr" hidden>Password salah.</div>
+  </form>
+</div>
 <header class="top">
   <h1>Timestamp Foto</h1>
   <span class="sub">Stamp lokasi, koordinat, waktu + snippet peta OSM</span>
@@ -665,6 +692,7 @@
   }
 
   function addFiles(files){
+    if (document.documentElement.classList.contains('locked')) return;
     var list = Array.from(files).filter(function(f){ return /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name); });
     if (!list.length) return;
     showStatus('Memuat ' + list.length + ' foto...');
@@ -923,6 +951,26 @@
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(pmap);
     pmap.on('click', function(e){ setGlobalLL(e.latlng.lat, e.latlng.lng); });
     setTimeout(function(){ pmap.invalidateSize(); }, 300);
+  }
+
+  /* ---------- password gate ---------- */
+  function sha256hex(s){
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then(function(b){
+      return Array.from(new Uint8Array(b)).map(function(x){ return x.toString(16).padStart(2, '0'); }).join('');
+    });
+  }
+  if (document.documentElement.classList.contains('locked')){
+    $('gatePw').focus();
+    $('gateForm').addEventListener('submit', function(e){
+      e.preventDefault();
+      sha256hex($('gatePw').value).then(function(h){
+        if (h === window.__PW_HASH){
+          try { localStorage.setItem('tsfoto_ok', h); } catch (err) {}
+          document.documentElement.classList.remove('locked');
+          if (pmap) pmap.invalidateSize();
+        } else { $('gateErr').hidden = false; $('gatePw').select(); }
+      }).catch(function(){ $('gateErr').textContent = 'Browser tidak mendukung, buka lewat link https.'; $('gateErr').hidden = false; });
+    });
   }
 
   /* ---------- init ---------- */
